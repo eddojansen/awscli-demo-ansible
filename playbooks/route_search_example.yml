@@ -1,0 +1,110 @@
+---
+# Example Ansible playbook for Apple Maps Trailer Route Search
+# This playbook demonstrates how to search for routes with trailer restrictions
+
+- name: Apple Maps Trailer Route Search Demo
+  hosts: localhost
+  gather_facts: no
+  vars:
+    plugin_path: "../plugins/apple_maps_trailer"
+    config_path: "../config/trailer_config.json"
+
+    # Example routes to search
+    routes:
+      - name: "San Francisco to Los Angeles"
+        origin: "San Francisco, CA"
+        destination: "Los Angeles, CA"
+        trailer_type: "standard_semi"
+
+      - name: "New York to Boston"
+        origin: "New York, NY"
+        destination: "Boston, MA"
+        trailer_type: "double_trailer"
+
+      - name: "Chicago to Detroit"
+        origin: "Chicago, IL"
+        destination: "Detroit, MI"
+        trailer_type: "standard_semi"
+
+  tasks:
+    - name: Display playbook information
+      debug:
+        msg: "Starting Apple Maps Trailer Route Search for {{ routes | length }} routes"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "../requirements.txt"
+        state: present
+      become: no
+      tags: setup
+
+    - name: Read trailer configuration
+      slurp:
+        src: "{{ config_path }}"
+      register: config_content
+      tags: config
+
+    - name: Parse configuration
+      set_fact:
+        trailer_config: "{{ config_content.content | b64decode | from_json }}"
+      tags: config
+
+    - name: Search routes for each destination
+      shell: |
+        python3 -m plugins.apple_maps_trailer.cli \
+          --origin "{{ item.origin }}" \
+          --destination "{{ item.destination }}" \
+          --weight {{ trailer_config.common_trailer_types[item.trailer_type].metric.weight }} \
+          --height {{ trailer_config.common_trailer_types[item.trailer_type].metric.height }} \
+          --width {{ trailer_config.common_trailer_types[item.trailer_type].metric.width }} \
+          --length {{ trailer_config.common_trailer_types[item.trailer_type].metric.length }} \
+          --units metric \
+          --json
+      args:
+        chdir: "{{ playbook_dir }}/.."
+      loop: "{{ routes }}"
+      register: route_results
+      tags: search
+
+    - name: Display route search results
+      debug:
+        msg: |
+          Route: {{ item.item.name }}
+          Origin: {{ item.item.origin }}
+          Destination: {{ item.item.destination }}
+          Trailer Type: {{ item.item.trailer_type }}
+
+          Result:
+          {{ item.stdout | from_json | to_nice_json }}
+      loop: "{{ route_results.results }}"
+      when: route_results is defined
+      tags: results
+
+    - name: Generate summary report
+      copy:
+        content: |
+          # Apple Maps Trailer Route Search Report
+          Generated: {{ ansible_date_time.iso8601 }}
+
+          {% for result in route_results.results %}
+          ## Route {{ loop.index }}: {{ result.item.name }}
+
+          - **Origin**: {{ result.item.origin }}
+          - **Destination**: {{ result.item.destination }}
+          - **Trailer Type**: {{ result.item.trailer_type }}
+
+          ### Results
+          ```json
+          {{ result.stdout | from_json | to_nice_json }}
+          ```
+
+          ---
+          {% endfor %}
+        dest: "/tmp/route_search_report_{{ ansible_date_time.epoch }}.md"
+      when: route_results is defined
+      tags: report
+
+    - name: Display summary
+      debug:
+        msg: "Route search completed. Report saved to /tmp/route_search_report_{{ ansible_date_time.epoch }}.md"
+      tags: report

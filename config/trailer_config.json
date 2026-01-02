@@ -1,0 +1,67 @@
+{
+  "default_trailer_specs": {
+    "metric": {
+      "weight": 25000,
+      "height": 4.0,
+      "width": 2.4,
+      "length": 13.6,
+      "unit_system": "metric"
+    },
+    "imperial": {
+      "weight": 55000,
+      "height": 13.5,
+      "width": 8.5,
+      "length": 45,
+      "unit_system": "imperial"
+    }
+  },
+  "common_trailer_types": {
+    "standard_semi": {
+      "metric": {
+        "weight": 25000,
+        "height": 4.0,
+        "width": 2.4,
+        "length": 13.6
+      },
+      "imperial": {
+        "weight": 55000,
+        "height": 13.5,
+        "width": 8.5,
+        "length": 45
+      }
+    },
+    "double_trailer": {
+      "metric": {
+        "weight": 35000,
+        "height": 4.2,
+        "width": 2.5,
+        "length": 18.0
+      },
+      "imperial": {
+        "weight": 77000,
+        "height": 14.0,
+        "width": 8.5,
+        "length": 60
+      }
+    },
+    "oversized_load": {
+      "metric": {
+        "weight": 45000,
+        "height": 4.5,
+        "width": 3.0,
+        "length": 20.0
+      },
+      "imperial": {
+        "weight": 99000,
+        "height": 15.0,
+        "width": 10.0,
+        "length": 65
+      }
+    }
+  },
+  "api_settings": {
+    "demo_mode": true,
+    "timeout": 30,
+    "retry_attempts": 3
+  }
+}
