@@ -48,6 +48,26 @@ cd playbooks
 ansible-playbook route_search_example.yml
 ```
 
+### Use it on your phone (PWA)
+
+`pwa/` is a self-contained web app that can be installed on your phone. It finds real truck routes that respect your vehicle + trailer **weight, height, width and length**, using [Valhalla](https://valhalla.github.io/valhalla/) truck routing on OpenStreetMap data. Then it hands the trip to Apple Maps for navigation.
+
+It's static files only, with no backend or API key, but it must be served over HTTPS to be installable. Options:
+
+- **GitHub Pages**: in the repo, go to *Settings → Pages*, deploy from this branch with folder `/ (root)`, then open `https://<user>.github.io/awscli-demo-ansible/pwa/`.
+- **Netlify Drop**: drag the `pwa/` folder onto <https://app.netlify.com/drop>.
+- **Local test**: `cd pwa && python3 -m http.server 8000`, then open <http://localhost:8000>.
+
+Install it:
+- **iPhone (Safari)**: Share → *Add to Home Screen*.
+- **Android (Chrome)**: ⋮ menu → *Install app*.
+
+Notes:
+- Apple Maps doesn't accept vehicle dimensions, so it may choose different roads than the ones shown in the app. Check that it follows the highlighted route.
+- Restrictions are only as good as OpenStreetMap's data. Always obey road signs.
+- After the first visit, the app opens offline and shows your last route. Searching needs a connection.
+- If you change files in `pwa/`, bump `CACHE` in `pwa/sw.js` so installed copies update.
+
 ### Documentation
 
 - **Plugin Documentation**: [plugins/apple_maps_trailer/README.md](plugins/apple_maps_trailer/README.md)

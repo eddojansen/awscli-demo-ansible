@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b5cad">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Trailer Route">
+  <title>Trailer Route</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Trailer Route</h1>
+    <span id="net-status" class="pill" hidden>Offline</span>
+  </header>
+
+  <main>
+    <form id="route-form" class="card" novalidate>
+      <div class="field">
+        <label for="origin">From</label>
+        <div class="row">
+          <input id="origin" name="origin" type="text" placeholder="Address or place" autocomplete="off" required>
+          <button type="button" id="use-location" class="icon-btn" aria-label="Use my location" title="Use my location">&#9678;</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="destination">To</label>
+        <input id="destination" name="destination" type="text" placeholder="Address or place" autocomplete="off" required>
+      </div>
+
+      <div class="field">
+        <label for="preset">Vehicle + trailer</label>
+        <select id="preset" name="preset"></select>
+      </div>
+
+      <div class="segmented" role="radiogroup" aria-label="Units">
+        <label><input type="radio" name="units" value="metric" checked> Metric</label>
+        <label><input type="radio" name="units" value="imperial"> Imperial</label>
+      </div>
+
+      <div class="grid">
+        <div class="field">
+          <label for="weight">Weight <span class="unit" data-unit="weight">t</span></label>
+          <input id="weight" name="weight" type="number" inputmode="decimal" step="any" min="0" required>
+        </div>
+        <div class="field">
+          <label for="height">Height <span class="unit" data-unit="length">m</span></label>
+          <input id="height" name="height" type="number" inputmode="decimal" step="any" min="0" required>
+        </div>
+        <div class="field">
+          <label for="width">Width <span class="unit" data-unit="length">m</span></label>
+          <input id="width" name="width" type="number" inputmode="decimal" step="any" min="0" required>
+        </div>
+        <div class="field">
+          <label for="length">Length <span class="unit" data-unit="length">m</span></label>
+          <input id="length" name="length" type="number" inputmode="decimal" step="any" min="0" required>
+        </div>
+      </div>
+
+      <details class="more">
+        <summary>More options</summary>
+        <label class="check"><input type="checkbox" name="avoidTolls"> Avoid tolls</label>
+        <label class="check"><input type="checkbox" name="avoidHighways"> Avoid highways</label>
+        <label class="check"><input type="checkbox" name="hazmat"> Hazardous materials</label>
+      </details>
+
+      <p id="form-error" class="error" role="alert" hidden></p>
+      <button type="submit" id="submit" class="primary">Find route</button>
+    </form>
+
+    <section id="result" class="card" hidden aria-live="polite">
+      <div id="summary"></div>
+      <div id="map"></div>
+      <div class="actions">
+        <a id="apple-maps" class="primary" href="#" target="_blank" rel="noopener">Open in Apple Maps</a>
+      </div>
+      <p class="note">Apple Maps doesn't accept trailer dimensions and may choose different roads. Use it for navigation, but check that it follows the route shown here.</p>
+      <details class="steps" open>
+        <summary>Directions</summary>
+        <ol id="maneuvers"></ol>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    Truck routing: <a href="https://valhalla.github.io/valhalla/" target="_blank" rel="noopener">Valhalla</a> (FOSSGIS server) ·
+    Search: <a href="https://nominatim.org/" target="_blank" rel="noopener">Nominatim</a> ·
+    Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
+    Restrictions depend on map data, so always obey road signs.
+  </footer>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
