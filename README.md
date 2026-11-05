@@ -62,6 +62,11 @@ Install it:
 - **iPhone (Safari)**: Share → *Add to Home Screen*.
 - **Android (Chrome)**: ⋮ menu → *Install app*.
 
+How it decides which roads fit:
+1. Valhalla's truck routing skips every road whose mapped OpenStreetMap limits (`maxheight`, `maxwidth`, `maxlength`, `maxweight`, `hgv=no`, `hazmat=no`) your vehicle exceeds. You can pick from up to 3 alternative routes.
+2. To show the details, the app asks Valhalla which OSM roads the route uses, then reads their tags from the OpenStreetMap API. It lists the lowest limit of each kind on the route and flags close fits.
+3. It also plans a car's route and lists the limits on it that your vehicle breaks. That's what the truck route avoided. If no route fits at all, the same check shows what's blocking it.
+
 Notes:
 - Apple Maps doesn't accept vehicle dimensions, so it may choose different roads than the ones shown in the app. Check that it follows the highlighted route.
 - Restrictions are only as good as OpenStreetMap's data. Always obey road signs.

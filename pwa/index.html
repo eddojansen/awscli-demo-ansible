@@ -76,27 +76,35 @@
     </form>
 
     <section id="result" class="card" hidden aria-live="polite">
-      <div id="summary"></div>
-      <div id="map"></div>
-      <div class="actions">
-        <a id="apple-maps" class="primary" href="#" target="_blank" rel="noopener">Open in Apple Maps</a>
+      <div id="no-route" hidden></div>
+      <div id="route-view">
+        <div id="summary"></div>
+        <div id="route-choices" class="route-choices" role="group" aria-label="Routes" hidden></div>
+        <div id="map"></div>
+        <div class="actions">
+          <a id="apple-maps" class="primary" href="#" target="_blank" rel="noopener">Open in Apple Maps</a>
+        </div>
+        <p class="note">Apple Maps doesn't accept trailer dimensions and may choose different roads. Use it for navigation, but check that it follows the route shown here.</p>
+        <p id="alt-note" class="note" hidden>Apple Maps only gets your start and destination, so it won't follow this alternative by itself.</p>
+        <div id="limits" class="limits-box"></div>
+        <details class="steps">
+          <summary>Directions</summary>
+          <ol id="maneuvers"></ol>
+        </details>
       </div>
-      <p class="note">Apple Maps doesn't accept trailer dimensions and may choose different roads. Use it for navigation, but check that it follows the route shown here.</p>
-      <details class="steps" open>
-        <summary>Directions</summary>
-        <ol id="maneuvers"></ol>
-      </details>
     </section>
   </main>
 
   <footer>
     Truck routing: <a href="https://valhalla.github.io/valhalla/" target="_blank" rel="noopener">Valhalla</a> (FOSSGIS server) ·
     Search: <a href="https://nominatim.org/" target="_blank" rel="noopener">Nominatim</a> ·
+    Road limits: <a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap API</a> ·
     Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
     Restrictions depend on map data, so always obey road signs.
   </footer>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="restrictions.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

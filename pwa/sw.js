@@ -1,12 +1,13 @@
 'use strict';
 
 // Bump when any shell file changes so phones pick up the new version.
-const CACHE = 'trailer-route-v1';
+const CACHE = 'trailer-route-v2';
 const SHELL = [
   './',
   'index.html',
   'styles.css',
   'app.js',
+  'restrictions.js',
   'manifest.webmanifest',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
