@@ -6,7 +6,7 @@ with trailer dimension restrictions (weight, height, width).
 """
 
 __version__ = "1.0.0"
-__author__ = "awscli-demo-ansible"
+__author__ = "trailer-route"
 
 from .route_search import AppleMapsTrailerRouter
 

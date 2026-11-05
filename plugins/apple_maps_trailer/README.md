@@ -397,7 +397,7 @@ Contributions are welcome! Areas for improvement:
 
 ## License
 
-This project is part of the awscli-demo-ansible repository.
+This project is part of the trailer-route repository.
 
 ## Support
 

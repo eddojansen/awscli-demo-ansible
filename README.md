@@ -1,4 +1,6 @@
-# awscli-demo-ansible
+# trailer-route
+
+Plan routes that fit your vehicle + trailer, and open them on your phone: **<https://eddojansen.github.io/trailer-route/pwa/>**
 
 ## Apple Maps Trailer Route Search Plugin
 
@@ -54,7 +56,7 @@ ansible-playbook route_search_example.yml
 
 It's static files only, with no backend or API key, but it must be served over HTTPS to be installable. Options:
 
-- **GitHub Pages**: in the repo, go to *Settings → Pages*, deploy from this branch with folder `/ (root)`, then open `https://<user>.github.io/awscli-demo-ansible/pwa/`.
+- **GitHub Pages** (how the link above is hosted): in the repo, go to *Settings → Pages* and deploy from branch `main`, folder `/ (root)`. The app is then at `https://<user>.github.io/trailer-route/pwa/`.
 - **Netlify Drop**: drag the `pwa/` folder onto <https://app.netlify.com/drop>.
 - **Local test**: `cd pwa && python3 -m http.server 8000`, then open <http://localhost:8000>.
 
@@ -88,7 +90,8 @@ Notes:
 ### Project Structure
 
 ```
-awscli-demo-ansible/
+trailer-route/
+├── pwa/                        # Installable phone app (PWA)
 ├── plugins/
 │   └── apple_maps_trailer/      # Apple Maps trailer route plugin
 │       ├── __init__.py
