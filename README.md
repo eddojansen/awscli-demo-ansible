@@ -75,10 +75,16 @@ How it decides which roads fit:
    Each problem names the road, the limit, your size, and where it is (for example "340 m before your destination"). Tap it to see it on the map.
 4. It also plans a car's route and lists the limits on it that your vehicle breaks. That's what the truck route avoided. If no route fits at all, the same check shows what's blocking it.
 
-**My vehicles:** save your trucks and trailers under a name (the "My vehicles" button, or "Save these sizes" under the vehicle list) and pick them from the vehicle list. They're stored on the phone only. Use **Back up** to save a file, and **Restore** after reinstalling the app or on a new phone.
+**Profile:** tap **Profile** to save your trucks and trailers under a name (or use "Save these sizes" under the vehicle list), and to choose your **navigation app**. Saved vehicles appear at the top of the vehicle list. Everything is stored on the phone only: use **Back up** to save a file, and **Restore** after reinstalling the app or on a new phone.
+
+**Opening the route in your navigation app.** The app compares your selected route with the one a car would take. Wherever they differ, it adds a stop on your route so the navigation app follows the same roads:
+- **Apple Maps**: up to 5 stops. Needs iOS 18.4 or later; older iOS only gets the destination.
+- **Google Maps**: up to 3 stops.
+- **Waze**: destination only.
+- **Route file (GPX)**: the exact route, shared to OsmAnd or another app that can follow a route file.
 
 Notes:
-- Apple Maps doesn't accept vehicle dimensions, so it may choose different roads than the ones shown in the app. Check that it follows the highlighted route.
+- Navigation apps don't know your vehicle's size. Between stops they pick their own roads, so check that they follow the highlighted route.
 - Restrictions are only as good as OpenStreetMap's data. Always obey road signs.
 - After the first visit, the app opens offline and shows your last route. Searching needs a connection.
 - If you change files in `pwa/`, bump `CACHE` in `pwa/sw.js` so installed copies update.

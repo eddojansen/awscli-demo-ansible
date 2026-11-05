@@ -79,3 +79,29 @@ const Vehicles = (() => {
 
   return { list, get, add, update, remove, exportJson, importJson };
 })();
+
+// Preferences such as the navigation app, stored on this device.
+const Settings = (() => {
+  const KEY = 'trailer-route:settings';
+
+  function all() {
+    try {
+      return JSON.parse(localStorage.getItem(KEY)) || {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function get(name, fallback) {
+    const v = all()[name];
+    return v === undefined ? fallback : v;
+  }
+
+  function set(name, value) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ ...all(), [name]: value }));
+    } catch (_) { /* storage full or disabled */ }
+  }
+
+  return { get, set };
+})();

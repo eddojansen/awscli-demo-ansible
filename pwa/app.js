@@ -29,14 +29,14 @@ const els = {
   result: $('result'),
   summary: $('summary'),
   maneuvers: $('maneuvers'),
-  appleMaps: $('apple-maps'),
+  navOpen: $('nav-open'),
+  navNote: $('nav-note'),
   useLocation: $('use-location'),
   netStatus: $('net-status'),
   verdict: $('verdict'),
   routeDetails: $('route-details'),
   routeChoices: $('route-choices'),
   limits: $('limits'),
-  altNote: $('alt-note'),
   map: $('map'),
 };
 
@@ -247,15 +247,6 @@ function formatDistance(value, system) {
   if (system !== 'metric' && value < 0.2) return `${Math.round((value * 5280) / 10) * 10} ft`;
   const unit = system === 'metric' ? 'km' : 'mi';
   return `${value < 10 ? round(value, 1) : Math.round(value)} ${unit}`;
-}
-
-function appleMapsUrl(from, to) {
-  const params = new URLSearchParams({
-    saddr: `${from.lat},${from.lon}`,
-    daddr: `${to.lat},${to.lon}`,
-    dirflg: 'd',
-  });
-  return `https://maps.apple.com/?${params}`;
 }
 
 function el(tag, className, text) {
@@ -481,8 +472,7 @@ function renderResult(result) {
     }
   }
 
-  els.appleMaps.href = appleMapsUrl(from, to);
-  els.altNote.hidden = result.selected === 0;
+  updateNav(result);
   drawMap(result);
   renderLimits(result);
 }
@@ -563,6 +553,7 @@ async function computeDetails(result, i) {
     details.carTime = car.time;
     details.carTotalKm = car.totalKm;
   }
+  details.pins = pinsFor(trip, car && car.line);
   return details;
 }
 
@@ -588,12 +579,19 @@ async function loadDetails(result, i) {
   try {
     result.details[i] = await computeDetails(result, i);
   } catch (e) {
-    result.details[i] = { error: e instanceof TypeError ? 'no connection' : e.message, transient: true };
+    result.details[i] = {
+      error: e instanceof TypeError ? 'no connection' : e.message,
+      transient: true,
+      pins: pinsFor(result.trips[i], null),
+    };
   }
   if (currentResult === result) {
     renderRouteChoices(result);
     renderVerdict(result);
-    if (result.selected === i) renderLimits(result);
+    if (result.selected === i) {
+      renderLimits(result);
+      updateNav(result);
+    }
     persistResult(result);
   }
   if (result.details[i].transient) delete result.details[i];
@@ -852,6 +850,7 @@ function init() {
   els.useLocation.addEventListener('click', onUseLocation);
   form.addEventListener('submit', onSubmit);
   initProfile();
+  initNav();
 
   window.addEventListener('online', updateNetStatus);
   window.addEventListener('offline', updateNetStatus);
@@ -859,6 +858,100 @@ function init() {
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+}
+
+// --- Hand-off to a navigation app ------------------------------------------
+
+function navApp() {
+  const app = Settings.get('navApp', 'apple');
+  return Navigation.APPS[app] ? app : 'apple';
+}
+
+// Stops per app that keep it on this route instead of a car's (the car route stands in
+// for what the navigation app would choose by itself).
+function pinsFor(trip, carLine) {
+  const line = tripLine(trip);
+  const out = {};
+  for (const [app, info] of Object.entries(Navigation.APPS)) {
+    if (info.maxPins) out[app] = Navigation.pins(line, carLine, info.maxPins);
+  }
+  return out;
+}
+
+function updateNav(result) {
+  const app = navApp();
+  const { label, maxPins } = Navigation.APPS[app];
+  const btn = els.navOpen;
+  const trip = result.trips[result.selected];
+  const d = result.details[result.selected];
+  const from = { lat: result.from.lat, lon: result.from.lon, current: result.from.name === 'My location' };
+  btn.removeAttribute('aria-disabled');
+  btn.textContent = app === 'gpx' ? 'Share route file (GPX)' : `Open in ${label}`;
+  let note;
+
+  if (app === 'gpx') {
+    btn.href = '#';
+    note = 'Shares the exact route as a file. Choose OsmAnd or another app that can follow a route file.';
+  } else if (app === 'waze') {
+    btn.href = Navigation.url('waze', from, result.to, []);
+    note = 'Waze only gets your destination and doesn\'t know your vehicle\'s size, so it may choose roads that don\'t fit. Follow the route shown here.';
+  } else if (!d && result.dims) {
+    btn.href = '#';
+    btn.setAttribute('aria-disabled', 'true');
+    note = `Preparing the route for ${label}…`;
+  } else {
+    const pins = (d && d.pins && d.pins[app]) || Navigation.pins(tripLine(trip), null, maxPins);
+    btn.href = Navigation.url(app, from, result.to, pins);
+    if (app === 'apple' && !Navigation.appleSupportsStops()) {
+      note = 'Apple Maps needs iOS 18.4 or later to take stops, so it only gets your destination and may choose roads that don\'t fit. Update iOS, or follow the route shown here.';
+    } else if (pins.length) {
+      note = `${label} gets ${pins.length} stop${pins.length === 1 ? '' : 's'} along this route to keep it on the same roads, and may announce each one. `
+        + 'Between stops it picks its own roads and doesn\'t know your vehicle\'s size, so check that it follows the route shown here.';
+    } else {
+      note = `This route uses the same roads a car would, so ${label} should choose it too. It doesn't know your vehicle's size, so check that it does.`;
+    }
+  }
+  els.navNote.textContent = note;
+}
+
+async function shareGpx() {
+  const result = currentResult;
+  if (!result || !result.trips.length) return;
+  const name = `${result.from.name} to ${result.to.name}`;
+  const slug = result.to.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'route';
+  const file = new File([Navigation.gpx(name, tripLine(result.trips[result.selected]))], `trailer-route-${slug}.gpx`, { type: 'application/gpx+xml' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name });
+    } catch (e) {
+      if (e.name !== 'AbortError') showError('Couldn\'t share the route file.');
+    }
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = el('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function initNav() {
+  els.navOpen.addEventListener('click', (e) => {
+    if (els.navOpen.getAttribute('aria-disabled') === 'true') return e.preventDefault();
+    if (navApp() === 'gpx') {
+      e.preventDefault();
+      shareGpx();
+    }
+  });
+  for (const radio of document.querySelectorAll('input[name="navApp"]')) {
+    radio.addEventListener('change', () => {
+      Settings.set('navApp', radio.value);
+      if (currentResult && currentResult.trips.length) updateNav(currentResult);
+    });
   }
 }
 
@@ -939,6 +1032,8 @@ function renderProfile() {
 
 function openProfile(focusName) {
   prof.status.textContent = '';
+  const radio = document.querySelector(`input[name="navApp"][value="${navApp()}"]`);
+  if (radio) radio.checked = true;
   renderProfile();
   prof.dialog.showModal();
   if (focusName) prof.name.focus();

@@ -20,17 +20,27 @@
     <h1>Trailer Route</h1>
     <div class="topbar-right">
       <span id="net-status" class="pill" hidden>Offline</span>
-      <button type="button" id="open-profile" class="topbar-btn">My vehicles</button>
+      <button type="button" id="open-profile" class="topbar-btn">Profile</button>
     </div>
   </header>
 
   <dialog id="profile" aria-labelledby="profile-title">
     <div class="dialog-head">
-      <h2 id="profile-title">My vehicles</h2>
+      <h2 id="profile-title">Profile</h2>
       <button type="button" class="icon-btn close" data-close aria-label="Close">&times;</button>
     </div>
-    <p class="note">Saved on this phone only. Removing the app deletes them, so make a backup first.</p>
+    <section class="profile-section" aria-labelledby="nav-title">
+      <h3 id="nav-title">Navigation app</h3>
+      <div id="nav-apps" class="nav-apps" role="radiogroup" aria-labelledby="nav-title">
+        <label class="nav-app"><input type="radio" name="navApp" value="apple"><span><strong>Apple Maps</strong><small>Follows your route using stops along the way (iOS 18.4 or later).</small></span></label>
+        <label class="nav-app"><input type="radio" name="navApp" value="google"><span><strong>Google Maps</strong><small>Follows your route using up to 3 stops.</small></span></label>
+        <label class="nav-app"><input type="radio" name="navApp" value="waze"><span><strong>Waze</strong><small>Gets only your destination and picks its own roads.</small></span></label>
+        <label class="nav-app"><input type="radio" name="navApp" value="gpx"><span><strong>Route file (GPX)</strong><small>The exact route, for OsmAnd and other apps that can follow a route file.</small></span></label>
+      </div>
+    </section>
 
+    <h3 class="profile-heading">My vehicles</h3>
+    <p class="note">Your vehicles and settings are saved on this phone only. Removing the app deletes them, so make a backup first.</p>
     <ul id="vehicle-list" class="vehicle-list"></ul>
     <p id="vehicle-empty" class="note" hidden>No saved vehicles yet.</p>
 
@@ -97,9 +107,9 @@
 
       <details class="more">
         <summary>More options</summary>
-        <label class="check"><input type="checkbox" name="avoidTolls"> Avoid tolls</label>
-        <label class="check"><input type="checkbox" name="avoidHighways"> Avoid highways</label>
-        <label class="check"><input type="checkbox" name="hazmat"> Hazardous materials</label>
+        <label class="checkbox"><input type="checkbox" name="avoidTolls"> Avoid tolls</label>
+        <label class="checkbox"><input type="checkbox" name="avoidHighways"> Avoid highways</label>
+        <label class="checkbox"><input type="checkbox" name="hazmat"> Hazardous materials</label>
       </details>
 
       <p id="form-error" class="error" role="alert" hidden></p>
@@ -113,10 +123,9 @@
       <div id="map"></div>
       <div id="route-details">
         <div class="actions">
-          <a id="apple-maps" class="primary" href="#" target="_blank" rel="noopener">Open in Apple Maps</a>
+          <a id="nav-open" class="primary" href="#" target="_blank" rel="noopener">Open in Apple Maps</a>
         </div>
-        <p class="note">Apple Maps doesn't accept trailer dimensions and may choose different roads. Use it for navigation, but check that it follows the route shown here.</p>
-        <p id="alt-note" class="note" hidden>Apple Maps only gets your start and destination, so it won't follow this alternative by itself.</p>
+        <p id="nav-note" class="note"></p>
         <div id="limits" class="limits-box"></div>
         <details class="steps">
           <summary>Directions</summary>
@@ -136,6 +145,7 @@
 
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="profile.js"></script>
+  <script src="navigation.js"></script>
   <script src="restrictions.js"></script>
   <script src="app.js"></script>
 </body>

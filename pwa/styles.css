@@ -100,8 +100,8 @@ input[type="text"], input[type="number"], select {
 
 .more { margin-bottom: 12px; }
 .more summary { color: var(--accent); cursor: pointer; padding: 4px 0; }
-.check { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
-.check input { width: 20px; height: 20px; }
+.checkbox { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.checkbox input { width: 20px; height: 20px; }
 
 .primary {
   display: block;
@@ -238,3 +238,13 @@ dialog#profile::backdrop { background: rgba(0, 0, 0, 0.45); }
 .save-vehicle .error { margin-top: 8px; }
 
 .backup { display: flex; gap: 8px; margin-top: 18px; }
+
+.profile-section { margin: 12px 0 4px; }
+.profile-section h3, .profile-heading { font-size: 16px; margin: 16px 0 6px; }
+.nav-apps { display: flex; flex-direction: column; gap: 6px; }
+.nav-app { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.nav-app:has(input:checked) { border: 2px solid var(--accent); padding: 7px 9px; }
+.nav-app input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 auto; }
+.nav-app span { display: flex; flex-direction: column; gap: 2px; }
+.nav-app small { color: var(--muted); font-size: 13px; }
+.primary[aria-disabled="true"] { opacity: 0.6; pointer-events: none; }
