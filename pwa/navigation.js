@@ -33,17 +33,20 @@ const Navigation = (() => {
     return Math.hypot(ax + t * dx, ay + t * dy);
   }
 
+  // Points about SAMPLE_KM apart, each with its distance from the start.
   function sample(line) {
-    const out = [line[0]];
+    const out = [{ p: line[0], km: 0 }];
+    let km = 0;
     let acc = 0;
     for (let i = 1; i < line.length; i++) {
-      acc += distanceKm(line[i - 1], line[i]);
-      if (acc >= SAMPLE_KM) {
-        out.push(line[i]);
+      const d = distanceKm(line[i - 1], line[i]);
+      km += d;
+      acc += d;
+      if (acc >= SAMPLE_KM || i === line.length - 1) {
+        out.push({ p: line[i], km });
         acc = 0;
       }
     }
-    if (out[out.length - 1] !== line[line.length - 1]) out.push(line[line.length - 1]);
     return out;
   }
 
@@ -72,41 +75,73 @@ const Navigation = (() => {
     };
   }
 
-  // Points on `line` that keep an app off `ref`: one per stretch where they differ, biggest first.
-  function pins(line, ref, max) {
+  // Stops that keep a navigation app on `line`:
+  // - one per stretch where `line` leaves `ref` (the road a car, and so the app, would take),
+  //   biggest first;
+  // - on longer routes, anchors spread along the way, because the app may not choose
+  //   the car route either.
+  // `candidates` ({at, km}) are safe points for stops; without them we use the line itself.
+  function pins(line, ref, max, candidates) {
     if (!line.length || max <= 0) return [];
-    if (!ref || ref.length < 2) return evenly(line, Math.min(max, 3));
-    const dist = nearLine(ref);
     const pts = sample(line);
-    const stretches = [];
-    let cur = null;
-    pts.forEach((p, i) => {
-      const d = dist(p);
-      if (d > OFF_ROUTE_KM) {
-        if (!cur) cur = { points: [], start: i };
-        cur.points.push({ p, d, i });
-      } else if (cur) {
-        stretches.push(cur);
-        cur = null;
+    const totalKm = pts[pts.length - 1].km;
+    const safe = candidates && candidates.length ? candidates : null;
+    const nearestSafe = (km, within) => {
+      if (!safe) return null;
+      let best = null;
+      for (const c of safe) {
+        const d = Math.abs(c.km - km);
+        if (d <= within && (!best || d < Math.abs(best.km - km))) best = c;
       }
-    });
-    if (cur) stretches.push(cur);
-    return stretches
-      // ignore slip-road-sized differences
-      .filter((s) => s.points.length >= 3 || Math.max(...s.points.map((x) => x.d)) > 0.3)
-      .map((s) => {
-        const top = s.points.reduce((a, b) => (b.d > a.d ? b : a));
-        return { at: top.p, order: top.i, weight: top.d * s.points.length };
-      })
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, max)
-      .sort((a, b) => a.order - b.order)
-      .map((s) => s.at);
+      return best;
+    };
+
+    const chosen = [];
+    if (ref && ref.length >= 2) {
+      const dist = nearLine(ref);
+      const stretches = [];
+      let cur = null;
+      for (const s of pts) {
+        const d = dist(s.p);
+        if (d > OFF_ROUTE_KM) {
+          if (!cur) cur = { points: [] };
+          cur.points.push({ ...s, d });
+        } else if (cur) {
+          stretches.push(cur);
+          cur = null;
+        }
+      }
+      if (cur) stretches.push(cur);
+      for (const st of stretches) {
+        const top = st.points.reduce((x, y) => (y.d > x.d ? y : x));
+        // ignore slip-road-sized differences
+        if (st.points.length < 3 && top.d <= 0.3) continue;
+        const from = st.points[0].km, to = st.points[st.points.length - 1].km;
+        const inside = safe ? safe.filter((x) => x.km >= from && x.km <= to) : [];
+        const c = inside.length ? inside.reduce((x, y) => (Math.abs(y.km - top.km) < Math.abs(x.km - top.km) ? y : x)) : null;
+        chosen.push({ at: c ? c.at : top.p, km: c ? c.km : top.km, weight: top.d * st.points.length });
+      }
+      chosen.sort((x, y) => y.weight - x.weight);
+      chosen.splice(max);
+    } else if (!safe) {
+      return evenly(pts, Math.min(max, 3), totalKm).map((x) => x.p);
+    }
+
+    const anchors = totalKm > 20 ? 2 : totalKm > 5 ? 1 : 0;
+    for (let k = 1; k <= anchors && chosen.length < max; k++) {
+      const target = (totalKm * k) / (anchors + 1);
+      const c = nearestSafe(target, totalKm / (2 * (anchors + 1)));
+      if (c && !chosen.some((x) => Math.abs(x.km - c.km) < Math.max(1, totalKm / 10))) chosen.push({ at: c.at, km: c.km });
+    }
+    return chosen.sort((x, y) => x.km - y.km).map((x) => x.at);
   }
 
-  function evenly(line, n) {
+  function evenly(pts, n, totalKm) {
     const out = [];
-    for (let k = 1; k <= n; k++) out.push(line[Math.floor((line.length - 1) * (k / (n + 1)))]);
+    for (let k = 1; k <= n; k++) {
+      const target = (totalKm * k) / (n + 1);
+      out.push(pts.reduce((a, b) => (Math.abs(b.km - target) < Math.abs(a.km - target) ? b : a)));
+    }
     return out;
   }
 

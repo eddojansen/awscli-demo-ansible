@@ -3,6 +3,8 @@
 const VALHALLA_URL = 'https://valhalla1.openstreetmap.de/route';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const STORAGE_KEY = 'trailer-route:v1';
+// Keep in sync with CACHE in sw.js.
+const APP_VERSION = 6;
 
 const KG_PER_LB = 0.45359237;
 const M_PER_FT = 0.3048;
@@ -553,7 +555,7 @@ async function computeDetails(result, i) {
     details.carTime = car.time;
     details.carTotalKm = car.totalKm;
   }
-  details.pins = pinsFor(trip, car && car.line);
+  details.pins = pinsFor(trip, car && car.line, Restrictions.pinCandidates(roads));
   return details;
 }
 
@@ -851,6 +853,7 @@ function init() {
   form.addEventListener('submit', onSubmit);
   initProfile();
   initNav();
+  for (const node of document.querySelectorAll('.app-version')) node.textContent = `Version ${APP_VERSION}`;
 
   window.addEventListener('online', updateNetStatus);
   window.addEventListener('offline', updateNetStatus);
@@ -870,11 +873,11 @@ function navApp() {
 
 // Stops per app that keep it on this route instead of a car's (the car route stands in
 // for what the navigation app would choose by itself).
-function pinsFor(trip, carLine) {
+function pinsFor(trip, carLine, candidates) {
   const line = tripLine(trip);
   const out = {};
   for (const [app, info] of Object.entries(Navigation.APPS)) {
-    if (info.maxPins) out[app] = Navigation.pins(line, carLine, info.maxPins);
+    if (info.maxPins) out[app] = Navigation.pins(line, carLine, info.maxPins, candidates);
   }
   return out;
 }

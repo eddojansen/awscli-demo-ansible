@@ -66,7 +66,7 @@ const Restrictions = (() => {
         shape_match: 'edge_walk',
         costing,
         costing_options: costingOptions,
-        filters: { attributes: ['edge.way_id', 'edge.names', 'edge.begin_shape_index', 'edge.length', 'shape'], action: 'include' },
+        filters: { attributes: ['edge.way_id', 'edge.names', 'edge.begin_shape_index', 'edge.end_shape_index', 'edge.length', 'shape'], action: 'include' },
       }),
     });
     if (!res.ok) throw new Error(`trace failed (${res.status})`);
@@ -100,6 +100,8 @@ const Restrictions = (() => {
           ref: (e.names && e.names[0]) || '',
           at: shape[e.begin_shape_index] || shape[0],
           km,
+          mid: shape[Math.floor((e.begin_shape_index + e.end_shape_index) / 2)] || shape[0],
+          midKm: km + (e.length || 0) / 2,
         });
       }
       km += e.length || 0;
@@ -150,5 +152,15 @@ const Restrictions = (() => {
     return [...groups.values()];
   }
 
-  return { roadsOf, summarize, avoided, parseLength, parseWeight };
+  // Points where a navigation app can't misread a stop: mid-way along two-way, non-motorway
+  // roads (a stop on a dual carriageway can snap to the other direction).
+  const DUAL = /^(motorway|motorway_link|trunk|trunk_link)$/;
+  function pinCandidates(roads) {
+    return roads
+      .filter((r) => r.tags.oneway !== 'yes' && r.tags.oneway !== '-1' && !DUAL.test(r.tags.highway || '')
+        && !r.tags.junction && r.tags.highway)
+      .map((r) => ({ at: r.mid, km: r.midKm }));
+  }
+
+  return { roadsOf, summarize, avoided, pinCandidates, parseLength, parseWeight };
 })();

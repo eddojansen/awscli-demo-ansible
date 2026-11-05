@@ -1,7 +1,7 @@
 'use strict';
 
-// Bump when any shell file changes so phones pick up the new version.
-const CACHE = 'trailer-route-v5';
+// Keep in sync with APP_VERSION in app.js.
+const CACHE = 'trailer-route-v6';
 const SHELL = [
   './',
   'index.html',
@@ -17,9 +17,16 @@ const SHELL = [
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',
 ];
+const NETWORK_TIMEOUT_MS = 3000;
 
+// cache: 'reload' skips the browser's HTTP cache (GitHub Pages allows 10 minutes),
+// so a new version never gets stored next to files from the old one.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -30,11 +37,25 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Only the app shell is served from cache; routing, search and map tiles go to the network.
+// App files: fresh from the network when it answers quickly, otherwise the saved copy.
+// Routing, search and map tiles are other origins and always go to the network.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then((hit) => hit || fetch(event.request)),
-  );
+  event.respondWith(networkFirst(event.request));
 });
+
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE);
+  const network = fetch(request, { cache: 'no-cache' }).then((res) => {
+    if (res.ok) cache.put(request, res.clone());
+    return res;
+  });
+  const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_TIMEOUT_MS));
+  try {
+    const res = await Promise.race([network, timeout]);
+    if (res) return res;
+  } catch (_) { /* offline */ }
+  const hit = await cache.match(request, { ignoreSearch: true });
+  return hit || network;
+}
