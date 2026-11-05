@@ -6,6 +6,7 @@ const STORAGE_KEY = 'trailer-route:v1';
 
 const KG_PER_LB = 0.45359237;
 const M_PER_FT = 0.3048;
+const KM_PER_MI = 1.609344;
 
 // Metric values: tonnes and metres. Mirrors config/trailer_config.json plus a caravan preset.
 const PRESETS = {
@@ -31,10 +32,10 @@ const els = {
   appleMaps: $('apple-maps'),
   useLocation: $('use-location'),
   netStatus: $('net-status'),
-  routeView: $('route-view'),
+  verdict: $('verdict'),
+  routeDetails: $('route-details'),
   routeChoices: $('route-choices'),
   limits: $('limits'),
-  noRoute: $('no-route'),
   altNote: $('alt-note'),
   map: $('map'),
 };
@@ -258,6 +259,100 @@ const ACCESS_TEXT = {
   agricultural: 'agricultural trucks only',
 };
 
+// Where along a route something is, in words.
+function kmText(km, system) {
+  return formatDistance(system === 'metric' ? km : km / KM_PER_MI, system);
+}
+
+function whereText(km, totalKm, system) {
+  if (km == null || !totalKm) return '';
+  const toEnd = totalKm - km;
+  if (toEnd < km) return toEnd < 0.3 ? 'at your destination' : `${kmText(toEnd, system)} before your destination`;
+  return km < 0.3 ? 'at the start' : `${kmText(km, system)} after the start`;
+}
+
+function distanceKm(a, b) {
+  const rad = Math.PI / 180;
+  const dLat = (b[0] - a[0]) * rad;
+  const dLon = (b[1] - a[1]) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+function tripLine(trip) {
+  return trip.legs.flatMap((leg) => decodePolyline6(leg.shape));
+}
+
+// The router snaps start and destination to the nearest road this vehicle may use.
+// If that road is far away, the route doesn't really get you there.
+const GAP_KM = 0.3;
+function gaps(result, trip) {
+  const line = tripLine(trip);
+  const out = [];
+  const startGap = distanceKm([result.from.lat, result.from.lon], line[0]);
+  const endGap = distanceKm([result.to.lat, result.to.lon], line[line.length - 1]);
+  if (startGap > GAP_KM) {
+    out.push({ text: `First ${kmText(startGap, result.system)} from your start: no road this vehicle may use. The route only begins at the marked point.`, at: line[0] });
+  }
+  if (endGap > GAP_KM) {
+    out.push({ text: `Last ${kmText(endGap, result.system)} to your destination: no road this vehicle may use. The route stops at the marked point.`, at: line[line.length - 1] });
+  }
+  return out;
+}
+
+function violationText(v, system) {
+  if (v.dim === 'hgv') return `${v.name}: no trucks allowed`;
+  if (v.dim === 'hazmat') return `${v.name}: no hazardous materials`;
+  return `${v.name}: max ${DIM_LABEL[v.dim]} ${formatDim(v.dim, v.limit, system)}`;
+}
+
+function blockText(v, dims, system, totalKm) {
+  const you = v.limit != null ? ` (you: ${formatDim(v.dim, dims[v.dim], system)})` : '';
+  const where = whereText(v.km, totalKm, system);
+  return `${violationText(v, system)}${you}${where ? `, ${where}` : ''}`;
+}
+
+function spareText(dim, t, system) {
+  if (t.margin < 0.005) return `Exactly at the ${formatDim(dim, t.limit, system)} ${DIM_LABEL[dim]} limit`;
+  return `Only ${formatDim(dim, t.margin, system)} spare under the ${formatDim(dim, t.limit, system)} ${DIM_LABEL[dim]} limit`;
+}
+
+// good: nothing to worry about; check: drivable but needs attention; bad: part of the trip isn't allowed.
+function verdict(result, i) {
+  const trip = result.trips[i];
+  const d = result.details[i];
+  const { system, dims } = result;
+  const bad = gaps(result, trip);
+  const check = [];
+
+  if (d && !d.error) {
+    for (const v of d.problems || []) bad.push({ text: blockText(v, dims, system, d.totalKm), at: v.at });
+    for (const dim of DIM_FIELDS) {
+      const t = d.tightest[dim];
+      if (t && t.margin >= 0 && isTight(dim, t.margin, t.limit)) {
+        const where = whereText(t.km, d.totalKm, system);
+        check.push({ text: `${spareText(dim, t, system)} at ${t.name}${where ? `, ${where}` : ''}`, at: t.at });
+      }
+    }
+    for (const c of d.conditional) {
+      const where = whereText(c.km, d.totalKm, system);
+      check.push({ text: `${c.name}: ${ACCESS_TEXT[c.value] || c.value}${where ? `, ${where}` : ''}`, at: c.at });
+    }
+    if (d.carTime && trip.summary.time > d.carTime * 1.5 && trip.summary.time - d.carTime > 15 * 60) {
+      check.push({ text: `Long way round: ${formatDuration(trip.summary.time - d.carTime)} longer than a car, because closer roads don't fit your vehicle.` });
+    }
+  } else if (d && d.error) {
+    check.push({ text: `Couldn't check road limits (${d.error}).` });
+  }
+  if (trip.summary.has_ferry) check.push({ text: 'Includes a ferry. Check that it takes your vehicle\'s size and weight.' });
+  if (trip.summary.has_time_restrictions) check.push({ text: 'Some roads on this route are closed to trucks at certain times.' });
+
+  const level = bad.length ? 'bad' : !d ? 'pending' : check.length ? 'check' : 'good';
+  return { level, bad, check };
+}
+
+const LEVEL_CHIP = { good: '✓ Good fit', check: '! Check', bad: '✕ Problem', pending: 'Checking…' };
+
 function renderRouteChoices(result) {
   els.routeChoices.replaceChildren();
   els.routeChoices.hidden = result.trips.length < 2;
@@ -270,32 +365,85 @@ function renderRouteChoices(result) {
     btn.append(el('span', 'time', formatDuration(trip.summary.time)));
     const extra = trip.summary.time - first;
     btn.append(el('span', 'meta', `${formatDistance(trip.summary.length, result.system)}${i && extra >= 60 ? ` · +${formatDuration(extra)}` : ''}`));
+    const level = verdict(result, i).level;
+    btn.append(el('span', `chip ${level}`, LEVEL_CHIP[level]));
     btn.addEventListener('click', () => selectRoute(result, i));
     els.routeChoices.append(btn);
   });
+}
+
+function issueList(items, className) {
+  const ul = el('ul', 'limits');
+  for (const it of items) ul.append(it.at ? limitItem(it.text, it.at, className) : el('li', className, it.text));
+  return ul;
+}
+
+const NEXT_STEPS = 'What you can do: set the destination on a bigger road nearby, double-check your vehicle\'s sizes, or ask the road authority about a permit for this trip.';
+
+function renderVerdict(result) {
+  const box = els.verdict;
+  const all = result.trips.map((_, i) => verdict(result, i));
+  const sel = all[result.selected];
+  const goodIndex = all.findIndex((v) => v.level === 'good');
+  const anyPending = all.some((v) => v.level === 'pending');
+  const allBad = all.every((v) => v.level === 'bad');
+
+  let level = sel.level;
+  let title;
+  let sub = '';
+  if (sel.level === 'good') {
+    title = 'Good route for your vehicle';
+    sub = 'Every mapped limit on this route clears your vehicle with room to spare.';
+  } else if (sel.level === 'pending') {
+    title = 'Checking whether this route fits…';
+  } else if (goodIndex !== -1) {
+    title = sel.level === 'bad' ? 'Part of this route isn\'t allowed for your vehicle' : 'Possible, but check before you go';
+  } else if (anyPending) {
+    title = sel.level === 'bad' ? 'Part of this route isn\'t allowed for your vehicle' : 'Possible, but check before you go';
+    sub = 'Still checking the other routes…';
+  } else if (allBad) {
+    title = 'No safe route to this destination';
+    sub = result.trips.length > 1 ? 'None of the routes found is fully allowed for your vehicle. On this one, these parts are the problem:' : 'Part of the only route found isn\'t allowed for your vehicle:';
+  } else {
+    level = 'check';
+    title = 'No really good route to this destination';
+    sub = 'This is the best option found, but these parts need attention:';
+  }
+
+  box.className = `verdict ${level}`;
+  box.replaceChildren(el('p', 'verdict-title', title));
+  if (sub) box.append(el('p', 'verdict-sub', sub));
+  if (sel.bad.length) box.append(issueList(sel.bad, 'bad'));
+  if (sel.check.length) box.append(issueList(sel.check, 'warn'));
+  if (goodIndex !== -1 && goodIndex !== result.selected) {
+    const btn = el('button', 'primary secondary', `Switch to ${goodIndex === 0 ? 'the recommended route' : `Alternative ${goodIndex}`}: no issues found`);
+    btn.type = 'button';
+    btn.addEventListener('click', () => selectRoute(result, goodIndex));
+    box.append(btn);
+  }
+  if (!anyPending && goodIndex === -1 && sel.level === 'bad') box.append(el('p', 'verdict-sub', NEXT_STEPS));
+}
+
+function setMode(routeFound) {
+  els.summary.hidden = !routeFound;
+  els.routeDetails.hidden = !routeFound;
+  if (!routeFound) els.routeChoices.hidden = true;
+  els.result.hidden = false;
 }
 
 function renderResult(result) {
   const { from, to, system } = result;
   const trip = result.trips[result.selected];
   const s = trip.summary;
+  setMode(true);
 
   els.summary.replaceChildren(
     el('div', 'big', `${formatDuration(s.time)} · ${formatDistance(s.length, system)}`),
     el('div', 'sub', `${from.name} → ${to.name}`),
   );
 
-  const flags = [];
-  if (s.has_toll) flags.push('Toll roads');
-  if (s.has_ferry) flags.push('Ferry');
-  if (s.has_time_restrictions) flags.push('Time-restricted roads');
-  if (flags.length) {
-    const ul = el('ul', 'flags');
-    for (const f of flags) ul.append(el('li', null, f));
-    els.summary.append(ul);
-  }
-
   renderRouteChoices(result);
+  renderVerdict(result);
 
   els.maneuvers.replaceChildren();
   for (const leg of trip.legs) {
@@ -308,9 +456,6 @@ function renderResult(result) {
 
   els.appleMaps.href = appleMapsUrl(from, to);
   els.altNote.hidden = result.selected === 0;
-  els.noRoute.hidden = true;
-  els.routeView.hidden = false;
-  els.result.hidden = false;
   drawMap(result);
   renderLimits(result);
 }
@@ -322,23 +467,6 @@ function limitItem(text, at, className) {
   btn.addEventListener('click', () => showOnMap(at, text));
   li.append(btn);
   return li;
-}
-
-function violationText(v, system) {
-  if (v.dim === 'hgv') return `${v.name}: no trucks`;
-  if (v.dim === 'hazmat') return `${v.name}: no hazardous materials`;
-  return `${v.name}: max ${DIM_LABEL[v.dim]} ${formatDim(v.dim, v.limit, system)}`;
-}
-
-function renderAvoided(container, list, dims, system, heading) {
-  if (!list.length) return;
-  container.append(el('h3', null, heading));
-  const ul = el('ul', 'limits');
-  for (const v of list) {
-    const you = v.limit != null ? ` (you: ${formatDim(v.dim, dims[v.dim], system)})` : '';
-    ul.append(limitItem(violationText(v, system) + you, v.at, 'bad'));
-  }
-  container.append(ul);
 }
 
 function renderLimits(result) {
@@ -366,28 +494,21 @@ function renderLimits(result) {
       ul.append(el('li', 'none', `No ${DIM_LABEL[dim]} limits mapped`));
       continue;
     }
-    const tight = isTight(dim, t.margin, t.limit);
-    const text = `Lowest ${DIM_LABEL[dim]} limit: ${formatDim(dim, t.limit, system)} at ${t.name}. `
-      + `You: ${formatDim(dim, dims[dim], system)}${tight ? ', a close fit' : ''}.`;
-    ul.append(limitItem(text, t.at, tight ? 'warn' : 'ok'));
+    const cls = t.margin < 0 ? 'bad' : isTight(dim, t.margin, t.limit) ? 'warn' : 'ok';
+    const text = `Lowest ${DIM_LABEL[dim]} limit: ${formatDim(dim, t.limit, system)} at ${t.name}. You: ${formatDim(dim, dims[dim], system)}.`;
+    ul.append(limitItem(text, t.at, cls));
   }
   box.append(ul);
 
-  if (d.conditional.length) {
-    box.append(el('h3', null, 'Roads with truck access rules'));
-    const cl = el('ul', 'limits');
-    for (const c of d.conditional) cl.append(limitItem(`${c.name}: ${ACCESS_TEXT[c.value] || c.value}`, c.at, 'warn'));
-    box.append(cl);
-  }
-
-  if (d.avoided) {
+  if (d.avoided && d.avoided.length) {
+    box.append(el('h3', null, 'Avoided because of your vehicle'));
+    const al = el('ul', 'limits');
+    for (const v of d.avoided) al.append(limitItem(blockText(v, dims, system, d.carTotalKm), v.at, 'bad'));
+    box.append(al);
     const extra = result.trips[result.selected].summary.time - d.carTime;
-    renderAvoided(box, d.avoided, dims, system, 'Avoided because of your vehicle');
-    if (d.avoided.length && extra >= 60) {
-      box.append(el('p', 'note', `This route takes ${formatDuration(extra)} longer than a car's route, which uses the roads above.`));
-    } else if (!d.avoided.length) {
-      box.append(el('p', 'note', 'No mapped limit on a car\'s route stops your vehicle, so its size isn\'t forcing a detour here.'));
-    }
+    if (extra >= 60) box.append(el('p', 'note', `Avoiding these makes this route ${formatDuration(extra)} longer than a car's.`));
+  } else if (d.avoided) {
+    box.append(el('p', 'note', 'No mapped limit on a car\'s route stops your vehicle, so its size isn\'t forcing a detour here.'));
   }
 
   box.append(el('p', 'note', `Checked ${d.roadCount.toLocaleString()} road segments in OpenStreetMap. Limits that nobody has mapped, and some single-point barriers, are not listed, so always obey the signs.`));
@@ -395,21 +516,25 @@ function renderLimits(result) {
 
 async function computeDetails(result, i) {
   const trip = result.trips[i];
-  const roads = await Restrictions.roadsOf(trip, 'truck', { truck: result.truckOptions }, decodePolyline6);
+  const { roads, totalKm } = await Restrictions.roadsOf(trip, 'truck', { truck: result.truckOptions }, decodePolyline6);
   const summary = Restrictions.summarize(roads, result.dims);
-  const pick = (r) => ({ name: r.name, at: r.at });
+  const pick = (r) => ({ name: r.name, at: r.at, km: r.km });
+  const asItem = (v) => ({ dim: v.dim, limit: v.limit, value: v.value, ...pick(v.road) });
   const details = {
     roadCount: summary.roadCount,
+    totalKm,
     tightest: Object.fromEntries(Object.entries(summary.tightest)
       .map(([dim, t]) => [dim, { limit: t.limit, margin: t.margin, ...pick(t.road) }])),
     conditional: summary.conditional.map((c) => ({ value: c.value, ...pick(c.road) })),
+    // The router normally avoids these; listing them catches rules it doesn't model.
+    problems: Restrictions.avoided(roads, result.dims, result.hazmat).map(asItem),
   };
   const car = await carReference(result);
   if (car) {
     const used = new Set(roads.map((r) => r.id));
-    details.avoided = Restrictions.avoided(car.roads, result.dims, result.hazmat, used)
-      .map((v) => ({ dim: v.dim, limit: v.limit, value: v.value, ...pick(v.road) }));
+    details.avoided = Restrictions.avoided(car.roads, result.dims, result.hazmat, used).map(asItem);
     details.carTime = car.time;
+    details.carTotalKm = car.totalKm;
   }
   return details;
 }
@@ -421,8 +546,8 @@ async function carReference(result) {
     carCache.set(result, (async () => {
       try {
         const [carTrip] = await valhallaRoute(result.from, result.to, 'auto', {}, result.system);
-        const roads = await Restrictions.roadsOf(carTrip, 'auto', {}, decodePolyline6);
-        return { roads, time: carTrip.summary.time };
+        const { roads, totalKm } = await Restrictions.roadsOf(carTrip, 'auto', {}, decodePolyline6);
+        return { roads, totalKm, time: carTrip.summary.time, line: tripLine(carTrip) };
       } catch (_) {
         return null;
       }
@@ -439,10 +564,21 @@ async function loadDetails(result, i) {
     result.details[i] = { error: e instanceof TypeError ? 'no connection' : e.message, transient: true };
   }
   if (currentResult === result) {
+    renderRouteChoices(result);
+    renderVerdict(result);
     if (result.selected === i) renderLimits(result);
     persistResult(result);
   }
   if (result.details[i].transient) delete result.details[i];
+}
+
+// Selected route first, then the others, one at a time to go easy on the free servers.
+async function loadAllDetails(result) {
+  const order = [result.selected, ...result.trips.map((_, i) => i).filter((i) => i !== result.selected)];
+  for (const i of order) {
+    if (currentResult !== result) return;
+    await loadDetails(result, i);
+  }
 }
 
 function selectRoute(result, i) {
@@ -457,36 +593,43 @@ function persistResult(result) {
   saveState({ lastResult: { ...result, details } });
 }
 
-async function explainNoRoute(result) {
-  els.result.hidden = false;
-  els.routeView.hidden = true;
-  els.noRoute.hidden = false;
-  const box = els.noRoute;
-  box.replaceChildren(
-    el('h2', null, 'No route fits this vehicle'),
-    el('p', 'note', 'Checking which roads block it…'),
-  );
+async function explainNoRoute(result, code) {
+  setMode(false);
+  const box = els.verdict;
+  const title = code === 'no_road'
+    ? 'No road for this vehicle near the start or destination'
+    : 'No route fits this vehicle';
+  const head = () => {
+    box.className = 'verdict bad';
+    box.replaceChildren(el('p', 'verdict-title', title));
+  };
+  head();
+  box.append(el('p', 'verdict-sub', 'Finding which part is blocked…'));
   if (routeLayer) routeLayer.remove();
+  els.map.hidden = true;
 
   const car = await carReference(result);
   if (currentResult !== result) return;
-  box.replaceChildren(el('h2', null, 'No route fits this vehicle'));
+  head();
   if (!car) {
-    box.append(el('p', 'note', 'Couldn\'t check the roads. Try a different destination or check the values.'));
+    box.append(el('p', 'verdict-sub', 'Couldn\'t check which roads block it. Check your connection, the destination and your vehicle\'s sizes.'));
     return;
   }
   const blocking = Restrictions.avoided(car.roads, result.dims, result.hazmat)
-    .map((v) => ({ dim: v.dim, limit: v.limit, value: v.value, name: v.road.name, at: v.road.at }));
+    .map((v) => ({ dim: v.dim, limit: v.limit, value: v.value, name: v.road.name, at: v.road.at, km: v.road.km }));
   if (blocking.length) {
-    renderAvoided(box, blocking, result.dims, result.system, 'A car can make this trip, but its route has these limits:');
-    box.append(el('p', 'note', 'Often the limit is close to the start or destination. Try an address nearby on a bigger road.'));
+    box.append(el('p', 'verdict-sub', 'A car can make this trip, but these parts of its route aren\'t allowed for your vehicle, and there is no way around them:'));
+    box.append(issueList(blocking.map((v) => ({ text: blockText(v, result.dims, result.system, car.totalKm), at: v.at })), 'bad'));
   } else {
-    box.append(el('p', 'note', 'No mapped size limits on a car\'s route stop this vehicle. The block may be a turn rule or an access rule near the start or destination.'));
+    box.append(el('p', 'verdict-sub', 'No mapped size limit on a car\'s route stops your vehicle. The block is probably a turn or access rule near the start or destination.'));
   }
+  box.append(el('p', 'verdict-sub', NEXT_STEPS));
+  drawNoRoute(result, car, blocking);
 }
 
-function drawMap(result) {
-  if (typeof L === 'undefined') return;
+function ensureMap() {
+  if (typeof L === 'undefined') return false;
+  els.map.hidden = false;
   if (!map) {
     map = L.map('map', { zoomControl: true });
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -495,28 +638,56 @@ function drawMap(result) {
     }).addTo(map);
   }
   if (routeLayer) routeLayer.remove();
+  if (focusMarker) focusMarker.remove();
+  return true;
+}
+
+function endpointMarkers(result) {
   const { from, to } = result;
-  const layers = [];
-  result.trips.forEach((trip, i) => {
-    if (i === result.selected) return;
-    const line = L.polyline(trip.legs.flatMap((leg) => decodePolyline6(leg.shape)), { color: '#8e8e93', weight: 5, opacity: 0.8 });
-    line.on('click', () => selectRoute(result, i));
-    layers.push(line);
-  });
-  const selected = result.trips[result.selected];
-  layers.push(L.polyline(selected.legs.flatMap((leg) => decodePolyline6(leg.shape)), { color: '#0b5cad', weight: 6, opacity: 0.9 }));
-  layers.push(
+  return [
     L.circleMarker([from.lat, from.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2e7d32', fillOpacity: 1 }),
     L.circleMarker([to.lat, to.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#c62828', fillOpacity: 1 }),
-  );
+  ];
+}
+
+function showLayers(layers) {
   routeLayer = L.featureGroup(layers).addTo(map);
   map.invalidateSize();
   map.fitBounds(routeLayer.getBounds(), { padding: [24, 24] });
 }
 
+const GAP_STYLE = { color: '#c62828', weight: 4, dashArray: '6 8', opacity: 0.9 };
+
+function drawMap(result) {
+  if (!ensureMap()) return;
+  const layers = [];
+  result.trips.forEach((trip, i) => {
+    if (i === result.selected) return;
+    const line = L.polyline(tripLine(trip), { color: '#8e8e93', weight: 5, opacity: 0.8 });
+    line.on('click', () => selectRoute(result, i));
+    layers.push(line);
+  });
+  const line = tripLine(result.trips[result.selected]);
+  layers.push(L.polyline(line, { color: '#0b5cad', weight: 6, opacity: 0.9 }));
+  const from = [result.from.lat, result.from.lon];
+  const to = [result.to.lat, result.to.lon];
+  if (distanceKm(from, line[0]) > GAP_KM) layers.push(L.polyline([from, line[0]], GAP_STYLE));
+  if (distanceKm(to, line[line.length - 1]) > GAP_KM) layers.push(L.polyline([line[line.length - 1], to], GAP_STYLE));
+  showLayers([...layers, ...endpointMarkers(result)]);
+}
+
+function drawNoRoute(result, car, blocking) {
+  if (!ensureMap()) return;
+  const layers = [L.polyline(car.line, { color: '#8e8e93', weight: 5, opacity: 0.7, dashArray: '8 8' })];
+  for (const v of blocking) {
+    layers.push(L.circleMarker(v.at, { radius: 9, color: '#fff', weight: 3, fillColor: '#c62828', fillOpacity: 1 })
+      .bindPopup(violationText(v, result.system)));
+  }
+  showLayers([...layers, ...endpointMarkers(result)]);
+}
+
 function showOnMap(at, text) {
-  if (!map || !at) return;
-  if (els.routeView.hidden) return;
+  if (!map || !at || els.map.hidden) return;
   if (focusMarker) focusMarker.remove();
   focusMarker = L.circleMarker(at, { radius: 10, color: '#fff', weight: 3, fillColor: '#ff9500', fillOpacity: 1 })
     .bindPopup(text).addTo(map);
@@ -568,15 +739,15 @@ async function onSubmit(event) {
     try {
       result.trips = await valhallaRoute(from, to, 'truck', result.truckOptions, system, 2);
     } catch (e) {
-      if (e.code !== 'no_route') throw e;
+      if (e.code !== 'no_route' && e.code !== 'no_road') throw e;
+      explainNoRoute(result, e.code);
       els.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      explainNoRoute(result);
       return;
     }
     renderResult(result);
     persistResult(result);
     els.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    loadDetails(result, 0);
+    loadAllDetails(result);
   } catch (e) {
     showError(e instanceof TypeError ? "Can't reach the routing service. Check your connection." : e.message);
   } finally {
@@ -635,7 +806,7 @@ function init() {
     if (!r.trips) Object.assign(r, { trips: [r.trip], selected: 0, details: {} });
     currentResult = r;
     renderResult(r);
-    if (navigator.onLine) loadDetails(r, r.selected);
+    if (navigator.onLine) loadAllDetails(r);
   }
 
   els.preset.addEventListener('change', () => applyPreset(els.preset.value));

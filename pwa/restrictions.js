@@ -66,7 +66,7 @@ const Restrictions = (() => {
         shape_match: 'edge_walk',
         costing,
         costing_options: costingOptions,
-        filters: { attributes: ['edge.way_id', 'edge.names', 'edge.begin_shape_index', 'shape'], action: 'include' },
+        filters: { attributes: ['edge.way_id', 'edge.names', 'edge.begin_shape_index', 'edge.length', 'shape'], action: 'include' },
       }),
     });
     if (!res.ok) throw new Error(`trace failed (${res.status})`);
@@ -85,26 +85,31 @@ const Restrictions = (() => {
     }
   }
 
+  // Roads along a trip in driving order, each with where it starts (`at`, `km` from the start).
   // Multi-leg routes join their shapes; the first point of each later leg repeats the
   // previous leg's last point, which edge_walk tolerates.
   async function roadsOf(trip, costing, costingOptions, decode) {
     const t = await trace(trip, costing, costingOptions);
     const shape = decode(t.shape);
     const seen = new Map();
+    let km = 0;
     for (const e of t.edges) {
       if (!seen.has(e.way_id)) {
         seen.set(e.way_id, {
           id: e.way_id,
           ref: (e.names && e.names[0]) || '',
           at: shape[e.begin_shape_index] || shape[0],
+          km,
         });
       }
+      km += e.length || 0;
     }
     await fetchTags([...seen.keys()]);
-    return [...seen.values()].map((r) => {
+    const roads = [...seen.values()].map((r) => {
       const tags = tagCache.get(r.id) || {};
       return { ...r, name: tags.name || r.ref || tags.ref || 'Unnamed road', tags, limits: limitsOf(tags) };
     });
+    return { roads, totalKm: km, shape };
   }
 
   // Which mapped rules this vehicle breaks on a road.

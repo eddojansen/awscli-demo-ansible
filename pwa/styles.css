@@ -7,6 +7,12 @@
   --accent: #0b5cad;
   --warn-bg: #fff4d6;
   --error: #c62828;
+  --good-bg: #e6f4ea;
+  --good-fg: #1e6b34;
+  --check-bg: #fff4d6;
+  --check-fg: #7a4b00;
+  --bad-bg: #fde7e7;
+  --bad-fg: #a31515;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,10 +25,17 @@
     --accent: #4a9eff;
     --warn-bg: #3a2f10;
     --error: #ff6b6b;
+    --good-bg: #12301c;
+    --good-fg: #7ed99a;
+    --check-bg: #3a2f10;
+    --check-fg: #ffd27a;
+    --bad-bg: #3d1414;
+    --bad-fg: #ff9b9b;
   }
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -106,6 +119,26 @@ input[type="text"], input[type="number"], select {
 
 .error { color: var(--error); margin: 0 0 12px; }
 
+.verdict { border-radius: 12px; border-left: 6px solid; padding: 12px 14px; margin-bottom: 14px; }
+.verdict.good { background: var(--good-bg); border-color: #2e7d32; }
+.verdict.check { background: var(--check-bg); border-color: #e69500; }
+.verdict.bad { background: var(--bad-bg); border-color: #c62828; }
+.verdict.pending { background: var(--bg); border-color: var(--border); }
+.verdict-title { font-size: 19px; font-weight: 700; margin: 0; }
+.verdict.good .verdict-title { color: var(--good-fg); }
+.verdict.check .verdict-title { color: var(--check-fg); }
+.verdict.bad .verdict-title { color: var(--bad-fg); }
+.verdict-sub { margin: 6px 0 0; font-size: 15px; }
+.verdict .limits { margin-top: 8px; }
+.verdict .limits li { border-color: rgba(127, 127, 127, 0.25); }
+.verdict .primary { margin-top: 12px; }
+.primary.secondary { font-size: 15px; padding: 10px; }
+.chip { font-size: 12px; font-weight: 600; margin-top: 4px; border-radius: 6px; padding: 1px 6px; }
+.chip.good { background: var(--good-bg); color: var(--good-fg); }
+.chip.check { background: var(--check-bg); color: var(--check-fg); }
+.chip.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.chip.pending { color: var(--muted); }
+
 #summary .big { font-size: 24px; font-weight: 700; }
 #summary .sub { color: var(--muted); }
 .flags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
@@ -137,8 +170,7 @@ input[type="text"], input[type="number"], select {
 
 .limits-box { margin: 16px 0 8px; }
 .limits-box h2 { font-size: 17px; margin: 0 0 8px; }
-.limits-box h3, #no-route h3 { font-size: 15px; margin: 14px 0 6px; }
-#no-route h2 { font-size: 20px; margin: 0 0 8px; }
+.limits-box h3 { font-size: 15px; margin: 14px 0 6px; }
 .limits { list-style: none; margin: 0; padding: 0; }
 .limits li { padding: 6px 0 6px 22px; border-bottom: 1px solid var(--border); position: relative; font-size: 15px; }
 .limits li::before { position: absolute; left: 0; top: 6px; font-weight: 700; }
