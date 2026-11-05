@@ -56,7 +56,7 @@ ansible-playbook route_search_example.yml
 
 It's static files only, with no backend or API key, but it must be served over HTTPS to be installable. Options:
 
-- **GitHub Pages** (how the link above is hosted): in the repo, go to *Settings → Pages* and deploy from branch `main`, folder `/ (root)`. The app is then at `https://<user>.github.io/trailer-route/pwa/`.
+- **GitHub Pages** (how the link above is hosted): in the repo, go to *Settings → Pages* and deploy from branch `master`, folder `/ (root)`. The app is then at `https://<user>.github.io/trailer-route/pwa/`.
 - **Netlify Drop**: drag the `pwa/` folder onto <https://app.netlify.com/drop>.
 - **Local test**: `cd pwa && python3 -m http.server 8000`, then open <http://localhost:8000>.
 
