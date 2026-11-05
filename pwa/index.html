@@ -18,8 +18,38 @@
 <body>
   <header class="topbar">
     <h1>Trailer Route</h1>
-    <span id="net-status" class="pill" hidden>Offline</span>
+    <div class="topbar-right">
+      <span id="net-status" class="pill" hidden>Offline</span>
+      <button type="button" id="open-profile" class="topbar-btn">My vehicles</button>
+    </div>
   </header>
+
+  <dialog id="profile" aria-labelledby="profile-title">
+    <div class="dialog-head">
+      <h2 id="profile-title">My vehicles</h2>
+      <button type="button" class="icon-btn close" data-close aria-label="Close">&times;</button>
+    </div>
+    <p class="note">Saved on this phone only. Removing the app deletes them, so make a backup first.</p>
+
+    <ul id="vehicle-list" class="vehicle-list"></ul>
+    <p id="vehicle-empty" class="note" hidden>No saved vehicles yet.</p>
+
+    <form id="save-vehicle" class="save-vehicle" novalidate>
+      <h3>Save the sizes in the form</h3>
+      <p id="save-summary" class="note"></p>
+      <div class="row">
+        <input id="vehicle-name" type="text" placeholder="Name, e.g. Truck + flatbed" maxlength="60" autocomplete="off" aria-label="Vehicle name">
+        <button type="submit" class="small-btn">Save</button>
+      </div>
+      <p id="save-error" class="error" hidden></p>
+    </form>
+
+    <div class="backup">
+      <button type="button" id="export-vehicles" class="small-btn ghost">Back up</button>
+      <label class="small-btn ghost">Restore<input id="import-vehicles" type="file" accept="application/json,.json" hidden></label>
+    </div>
+    <p id="backup-status" class="note" role="status"></p>
+  </dialog>
 
   <main>
     <form id="route-form" class="card" novalidate>
@@ -38,6 +68,7 @@
       <div class="field">
         <label for="preset">Vehicle + trailer</label>
         <select id="preset" name="preset"></select>
+        <button type="button" id="save-current" class="link small-link">Save these sizes to My vehicles</button>
       </div>
 
       <div class="segmented" role="radiogroup" aria-label="Units">
@@ -104,6 +135,7 @@
   </footer>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="profile.js"></script>
   <script src="restrictions.js"></script>
   <script src="app.js"></script>
 </body>

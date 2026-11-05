@@ -84,9 +84,36 @@ function showDims() {
   }
 }
 
+const SAVED_PREFIX = 'v:';
+
+// A saved vehicle ("v:<id>") or a built-in preset; null for "Custom".
+function vehicleFor(key) {
+  if (key && key.startsWith(SAVED_PREFIX)) return Vehicles.get(key.slice(SAVED_PREFIX.length));
+  return key !== 'custom' && PRESETS[key] ? PRESETS[key] : null;
+}
+
+function fillVehicleSelect(selected) {
+  const saved = Vehicles.list();
+  const presets = Object.entries(PRESETS).filter(([key]) => key !== 'custom');
+  els.preset.replaceChildren();
+  if (saved.length) {
+    const mine = document.createElement('optgroup');
+    mine.label = 'My vehicles';
+    for (const v of saved) mine.append(new Option(v.name, SAVED_PREFIX + v.id));
+    const builtIn = document.createElement('optgroup');
+    builtIn.label = 'Presets';
+    for (const [key, p] of presets) builtIn.append(new Option(p.label, key));
+    els.preset.append(mine, builtIn);
+  } else {
+    for (const [key, p] of presets) els.preset.append(new Option(p.label, key));
+  }
+  els.preset.append(new Option('Custom', 'custom'));
+  els.preset.value = vehicleFor(selected) ? selected : 'custom';
+}
+
 function applyPreset(key) {
-  const p = PRESETS[key];
-  if (!p || key === 'custom') return;
+  const p = vehicleFor(key);
+  if (!p) return;
   for (const f of DIM_FIELDS) metricDims[f] = p[f];
   showDims();
 }
@@ -781,14 +808,10 @@ function updateNetStatus() {
 }
 
 function init() {
-  for (const [key, p] of Object.entries(PRESETS)) {
-    els.preset.append(new Option(p.label, key));
-  }
-
   const state = loadState();
   if (state.units) form.elements.units.value = state.units;
   updateUnitLabels();
-  els.preset.value = state.preset && PRESETS[state.preset] ? state.preset : 'standard_semi';
+  fillVehicleSelect(state.preset || 'standard_semi');
   if (state.dims) {
     for (const f of DIM_FIELDS) metricDims[f] = state.dims[f];
     showDims();
@@ -809,7 +832,10 @@ function init() {
     if (navigator.onLine) loadAllDetails(r);
   }
 
-  els.preset.addEventListener('change', () => applyPreset(els.preset.value));
+  els.preset.addEventListener('change', () => {
+    applyPreset(els.preset.value);
+    saveState();
+  });
   for (const radio of form.elements.units) {
     radio.addEventListener('change', () => {
       showDims();
@@ -825,6 +851,7 @@ function init() {
   els.origin.addEventListener('input', () => { currentLocation = null; });
   els.useLocation.addEventListener('click', onUseLocation);
   form.addEventListener('submit', onSubmit);
+  initProfile();
 
   window.addEventListener('online', updateNetStatus);
   window.addEventListener('offline', updateNetStatus);
@@ -833,6 +860,160 @@ function init() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+}
+
+// --- My vehicles -----------------------------------------------------------
+
+const prof = {
+  dialog: $('profile'),
+  list: $('vehicle-list'),
+  empty: $('vehicle-empty'),
+  form: $('save-vehicle'),
+  name: $('vehicle-name'),
+  summary: $('save-summary'),
+  error: $('save-error'),
+  status: $('backup-status'),
+};
+
+function sizeSummary(dims) {
+  const system = units();
+  return `${formatDim('weight', dims.weight, system)} · ${formatDim('height', dims.height, system)} high · `
+    + `${formatDim('width', dims.width, system)} wide · ${formatDim('length', dims.length, system)} long`;
+}
+
+function selectVehicle(key) {
+  fillVehicleSelect(key);
+  applyPreset(els.preset.value);
+  saveState();
+}
+
+function renderProfile() {
+  const saved = Vehicles.list();
+  prof.list.replaceChildren();
+  prof.empty.hidden = saved.length > 0;
+  for (const v of saved) {
+    const key = SAVED_PREFIX + v.id;
+    const li = el('li', 'vehicle');
+    const name = el('input', 'vehicle-name');
+    name.type = 'text';
+    name.value = v.name;
+    name.maxLength = 60;
+    name.setAttribute('aria-label', 'Vehicle name');
+    name.addEventListener('change', () => {
+      if (!name.value.trim()) { name.value = v.name; return; }
+      Vehicles.update(v.id, { name: name.value });
+      fillVehicleSelect(els.preset.value);
+    });
+    const meta = el('div', 'vehicle-meta', sizeSummary(v));
+    const actions = el('div', 'vehicle-actions');
+    const inUse = els.preset.value === key;
+    const use = el('button', 'small-btn', inUse ? 'In use' : 'Use');
+    use.type = 'button';
+    use.disabled = inUse;
+    use.addEventListener('click', () => {
+      selectVehicle(key);
+      prof.dialog.close();
+    });
+    const del = el('button', 'small-btn ghost danger', 'Delete');
+    del.type = 'button';
+    del.addEventListener('click', () => {
+      if (!confirm(`Delete "${v.name}"?`)) return;
+      const wasSelected = els.preset.value === key;
+      Vehicles.remove(v.id);
+      fillVehicleSelect(wasSelected ? 'custom' : els.preset.value);
+      saveState();
+      renderProfile();
+    });
+    actions.append(use, del);
+    li.append(name, meta, actions);
+    prof.list.append(li);
+  }
+
+  prof.error.hidden = true;
+  try {
+    prof.summary.textContent = sizeSummary(readDimensions());
+  } catch (_) {
+    prof.summary.textContent = 'Fill in all four sizes in the form first.';
+  }
+}
+
+function openProfile(focusName) {
+  prof.status.textContent = '';
+  renderProfile();
+  prof.dialog.showModal();
+  if (focusName) prof.name.focus();
+}
+
+function onSaveVehicle(event) {
+  event.preventDefault();
+  const showSaveError = (msg) => { prof.error.textContent = msg; prof.error.hidden = false; };
+  let dims;
+  try {
+    dims = readDimensions();
+  } catch (e) {
+    return showSaveError('Fill in all four sizes in the form first.');
+  }
+  const name = prof.name.value.trim();
+  if (!name) return showSaveError('Give this vehicle a name.');
+  const existing = Vehicles.list().find((v) => v.name.toLowerCase() === name.toLowerCase());
+  let id;
+  if (existing) {
+    if (!confirm(`Replace the sizes saved for "${existing.name}"?`)) return;
+    Vehicles.update(existing.id, dims);
+    id = existing.id;
+  } else {
+    id = Vehicles.add(name, dims).id;
+  }
+  prof.name.value = '';
+  selectVehicle(SAVED_PREFIX + id);
+  renderProfile();
+  prof.status.textContent = `Saved "${name}".`;
+}
+
+async function onExport() {
+  const file = new File([Vehicles.exportJson()], 'trailer-route-vehicles.json', { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Trailer Route vehicles' });
+      prof.status.textContent = 'Backup shared. Keep it somewhere safe, like Files or iCloud Drive.';
+    } catch (e) {
+      if (e.name !== 'AbortError') prof.status.textContent = 'Couldn\'t share the backup.';
+    }
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = el('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  prof.status.textContent = 'Backup downloaded.';
+}
+
+async function onImport(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  try {
+    const added = Vehicles.importJson(await file.text());
+    fillVehicleSelect(els.preset.value);
+    renderProfile();
+    prof.status.textContent = added ? `Restored ${added} vehicle${added === 1 ? '' : 's'}.` : 'Nothing new: these vehicles are already saved.';
+  } catch (e) {
+    prof.status.textContent = e.message;
+  }
+}
+
+function initProfile() {
+  $('open-profile').addEventListener('click', () => openProfile(false));
+  $('save-current').addEventListener('click', () => openProfile(true));
+  prof.form.addEventListener('submit', onSaveVehicle);
+  $('export-vehicles').addEventListener('click', onExport);
+  $('import-vehicles').addEventListener('change', onImport);
+  prof.dialog.querySelector('[data-close]').addEventListener('click', () => prof.dialog.close());
+  prof.dialog.addEventListener('click', (e) => { if (e.target === prof.dialog) prof.dialog.close(); });
 }
 
 init();

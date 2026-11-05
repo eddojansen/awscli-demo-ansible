@@ -75,6 +75,8 @@ How it decides which roads fit:
    Each problem names the road, the limit, your size, and where it is (for example "340 m before your destination"). Tap it to see it on the map.
 4. It also plans a car's route and lists the limits on it that your vehicle breaks. That's what the truck route avoided. If no route fits at all, the same check shows what's blocking it.
 
+**My vehicles:** save your trucks and trailers under a name (the "My vehicles" button, or "Save these sizes" under the vehicle list) and pick them from the vehicle list. They're stored on the phone only. Use **Back up** to save a file, and **Restore** after reinstalling the app or on a new phone.
+
 Notes:
 - Apple Maps doesn't accept vehicle dimensions, so it may choose different roads than the ones shown in the app. Check that it follows the highlighted route.
 - Restrictions are only as good as OpenStreetMap's data. Always obey road signs.
