@@ -4,7 +4,7 @@ const VALHALLA_URL = 'https://valhalla1.openstreetmap.de/route';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const STORAGE_KEY = 'trailer-route:v1';
 // Keep in sync with CACHE in sw.js.
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 const KG_PER_LB = 0.45359237;
 const M_PER_FT = 0.3048;
@@ -187,10 +187,11 @@ function truckOptions(dims, opts) {
   };
 }
 
-async function valhallaRoute(from, to, costing, costingOptions, system, alternates = 0) {
+async function valhallaRoute(from, to, costing, costingOptions, system, alternates = 0, via = []) {
   const body = {
     locations: [
       { lat: from.lat, lon: from.lon },
+      ...via.map(([lat, lon]) => ({ lat, lon })),
       { lat: to.lat, lon: to.lon },
     ],
     costing,
@@ -555,7 +556,8 @@ async function computeDetails(result, i) {
     details.carTime = car.time;
     details.carTotalKm = car.totalKm;
   }
-  details.pins = pinsFor(trip, car && car.line, Restrictions.pinCandidates(roads));
+  if (!candidateCache.has(result)) candidateCache.set(result, new Map());
+  candidateCache.get(result).set(i, Restrictions.pinCandidates(roads));
   return details;
 }
 
@@ -584,7 +586,6 @@ async function loadDetails(result, i) {
     result.details[i] = {
       error: e instanceof TypeError ? 'no connection' : e.message,
       transient: true,
-      pins: pinsFor(result.trips[i], null),
     };
   }
   if (currentResult === result) {
@@ -616,7 +617,9 @@ function selectRoute(result, i) {
 }
 
 function persistResult(result) {
-  const details = Object.fromEntries(Object.entries(result.details).filter(([, d]) => !d.error));
+  const details = Object.fromEntries(Object.entries(result.details)
+    .filter(([, d]) => !d.error)
+    .map(([k, d]) => [k, { ...d, navFailed: undefined }]));
   saveState({ lastResult: { ...result, details } });
 }
 
@@ -871,15 +874,57 @@ function navApp() {
   return Navigation.APPS[app] ? app : 'apple';
 }
 
-// Stops per app that keep it on this route instead of a car's (the car route stands in
-// for what the navigation app would choose by itself).
-function pinsFor(trip, carLine, candidates) {
+// Safe stop locations per route, kept in memory only.
+const candidateCache = new WeakMap();
+const navJobs = new WeakMap();
+
+// Finds stops that keep a navigation app on route i. The car route stands in for what the
+// app would choose: add a stop where it strays, plan a car route through the stops, and
+// repeat until it follows our route or we run out of stops.
+async function computeNavPins(result, i) {
+  const trip = result.trips[i];
   const line = tripLine(trip);
-  const out = {};
-  for (const [app, info] of Object.entries(Navigation.APPS)) {
-    if (info.maxPins) out[app] = Navigation.pins(line, carLine, info.maxPins, candidates);
+  let candidates = candidateCache.get(result) && candidateCache.get(result).get(i);
+  if (!candidates) {
+    const { roads } = await Restrictions.roadsOf(trip, 'truck', { truck: result.truckOptions }, decodePolyline6);
+    candidates = Restrictions.pinCandidates(roads);
   }
-  return out;
+  const car = await carReference(result);
+  if (!car) throw new Error('no car route to compare with');
+  const added = Navigation.middlePins(line, car.line, candidates, 2);
+  let ref = car.line;
+  if (added.length) {
+    const via = [...added].sort((a, b) => a.km - b.km).map((p) => p.at);
+    ref = tripLine((await valhallaRoute(result.from, result.to, 'auto', {}, result.system, 0, via))[0]);
+  }
+  let matchedAt = null;
+  for (;;) {
+    const pin = Navigation.nextPin(line, ref, candidates);
+    if (!pin) {
+      matchedAt = added.length;
+      break;
+    }
+    if (added.length >= Navigation.MAX_PINS || added.some((p) => Math.abs(p.km - pin.km) < 0.2)) break;
+    added.push(pin);
+    const via = [...added].sort((a, b) => a.km - b.km).map((p) => p.at);
+    const [pinned] = await valhallaRoute(result.from, result.to, 'auto', {}, result.system, 0, via);
+    ref = tripLine(pinned);
+  }
+  return { added, matchedAt };
+}
+
+function ensureNavPins(result, i) {
+  if (!navJobs.has(result)) navJobs.set(result, new Map());
+  const jobs = navJobs.get(result);
+  if (jobs.has(i)) return;
+  jobs.set(i, computeNavPins(result, i)
+    .then((nav) => { result.details[i].nav = nav; })
+    .catch(() => { result.details[i].navFailed = true; })
+    .finally(() => {
+      if (currentResult !== result) return;
+      if (result.selected === i) updateNav(result);
+      persistResult(result);
+    }));
 }
 
 function updateNav(result) {
@@ -899,20 +944,29 @@ function updateNav(result) {
   } else if (app === 'waze') {
     btn.href = Navigation.url('waze', from, result.to, []);
     note = 'Waze only gets your destination and doesn\'t know your vehicle\'s size, so it may choose roads that don\'t fit. Follow the route shown here.';
-  } else if (!d && result.dims) {
+  } else if (app === 'apple' && !Navigation.appleSupportsStops()) {
+    btn.href = Navigation.url(app, from, result.to, []);
+    note = 'Apple Maps needs iOS 18.4 or later to take stops, so it only gets your destination and may choose roads that don\'t fit. Update iOS, or follow the route shown here.';
+  } else if (result.dims && (!d || (!d.error && !d.nav && !d.navFailed))) {
     btn.href = '#';
     btn.setAttribute('aria-disabled', 'true');
-    note = `Preparing the route for ${label}…`;
+    note = `Preparing the route for ${label}\u2026`;
+    if (d) ensureNavPins(result, result.selected);
   } else {
-    const pins = (d && d.pins && d.pins[app]) || Navigation.pins(tripLine(trip), null, maxPins);
+    const nav = d && d.nav;
+    const pins = nav
+      ? nav.added.slice(0, maxPins).sort((a, b) => a.km - b.km).map((p) => p.at)
+      : Navigation.fallbackPins(tripLine(trip), Math.min(maxPins, 3));
+    const checked = nav && nav.matchedAt !== null && nav.matchedAt <= maxPins;
     btn.href = Navigation.url(app, from, result.to, pins);
-    if (app === 'apple' && !Navigation.appleSupportsStops()) {
-      note = 'Apple Maps needs iOS 18.4 or later to take stops, so it only gets your destination and may choose roads that don\'t fit. Update iOS, or follow the route shown here.';
-    } else if (pins.length) {
-      note = `${label} gets ${pins.length} stop${pins.length === 1 ? '' : 's'} along this route to keep it on the same roads, and may announce each one. `
-        + 'Between stops it picks its own roads and doesn\'t know your vehicle\'s size, so check that it follows the route shown here.';
+    const stops = `${pins.length} stop${pins.length === 1 ? '' : 's'}`;
+    if (checked && !pins.length) {
+      note = `A car's route already follows this route, so ${label} should choose it too. It doesn't know your vehicle's size, so check that it does.`;
+    } else if (checked) {
+      note = `${label} gets ${stops} along this route. A car route through these stops follows your route, so ${label} should stay on it. It may announce each stop.`;
     } else {
-      note = `This route uses the same roads a car would, so ${label} should choose it too. It doesn't know your vehicle's size, so check that it does.`;
+      note = `${label} gets ${stops}, but this route couldn't be fully pinned: a car route through them still leaves it in places, so ${label} may too. `
+        + `Check the route in ${label} before you drive, or choose "Route file (GPX)" in Profile to keep the exact route.`;
     }
   }
   els.navNote.textContent = note;

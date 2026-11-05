@@ -75,72 +75,70 @@ const Navigation = (() => {
     };
   }
 
-  // Stops that keep a navigation app on `line`:
-  // - one per stretch where `line` leaves `ref` (the road a car, and so the app, would take),
-  //   biggest first;
-  // - on longer routes, anchors spread along the way, because the app may not choose
-  //   the car route either.
-  // `candidates` ({at, km}) are safe points for stops; without them we use the line itself.
-  function pins(line, ref, max, candidates) {
-    if (!line.length || max <= 0) return [];
+  // Where `line` strays from `ref` (the route a car, and so the navigation app, would take),
+  // as stretches of sampled points with their distance from `ref`.
+  function stretchesOff(line, ref) {
     const pts = sample(line);
-    const totalKm = pts[pts.length - 1].km;
-    const safe = candidates && candidates.length ? candidates : null;
-    const nearestSafe = (km, within) => {
-      if (!safe) return null;
-      let best = null;
-      for (const c of safe) {
-        const d = Math.abs(c.km - km);
-        if (d <= within && (!best || d < Math.abs(best.km - km))) best = c;
+    const dist = nearLine(ref);
+    const out = [];
+    let cur = null;
+    for (const s of pts) {
+      const d = dist(s.p);
+      if (d > OFF_ROUTE_KM) {
+        if (!cur) cur = [];
+        cur.push({ ...s, d });
+      } else if (cur) {
+        out.push(cur);
+        cur = null;
       }
-      return best;
-    };
-
-    const chosen = [];
-    if (ref && ref.length >= 2) {
-      const dist = nearLine(ref);
-      const stretches = [];
-      let cur = null;
-      for (const s of pts) {
-        const d = dist(s.p);
-        if (d > OFF_ROUTE_KM) {
-          if (!cur) cur = { points: [] };
-          cur.points.push({ ...s, d });
-        } else if (cur) {
-          stretches.push(cur);
-          cur = null;
-        }
-      }
-      if (cur) stretches.push(cur);
-      for (const st of stretches) {
-        const top = st.points.reduce((x, y) => (y.d > x.d ? y : x));
-        // ignore slip-road-sized differences
-        if (st.points.length < 3 && top.d <= 0.3) continue;
-        const from = st.points[0].km, to = st.points[st.points.length - 1].km;
-        const inside = safe ? safe.filter((x) => x.km >= from && x.km <= to) : [];
-        const c = inside.length ? inside.reduce((x, y) => (Math.abs(y.km - top.km) < Math.abs(x.km - top.km) ? y : x)) : null;
-        chosen.push({ at: c ? c.at : top.p, km: c ? c.km : top.km, weight: top.d * st.points.length });
-      }
-      chosen.sort((x, y) => y.weight - x.weight);
-      chosen.splice(max);
-    } else if (!safe) {
-      return evenly(pts, Math.min(max, 3), totalKm).map((x) => x.p);
     }
-
-    const anchors = totalKm > 20 ? 2 : totalKm > 5 ? 1 : 0;
-    for (let k = 1; k <= anchors && chosen.length < max; k++) {
-      const target = (totalKm * k) / (anchors + 1);
-      const c = nearestSafe(target, totalKm / (2 * (anchors + 1)));
-      if (c && !chosen.some((x) => Math.abs(x.km - c.km) < Math.max(1, totalKm / 10))) chosen.push({ at: c.at, km: c.km });
-    }
-    return chosen.sort((x, y) => x.km - y.km).map((x) => x.at);
+    if (cur) out.push(cur);
+    // ignore slip-road-sized differences
+    return out.filter((st) => st.length >= 3 || Math.max(...st.map((x) => x.d)) > 0.3);
   }
 
-  function evenly(pts, n, totalKm) {
+  // The next stop to add: in the biggest stretch where `ref` still leaves `line`, at the point
+  // farthest from `ref`. A safe candidate ({at, km}: mid-way along a two-way, non-motorway road)
+  // in that stretch is preferred, because a stop on a dual carriageway can snap to the other side.
+  // Returns null when `ref` already follows `line`.
+  function nextPin(line, ref, candidates) {
+    const stretches = stretchesOff(line, ref);
+    if (!stretches.length) return null;
+    const weight = (st) => Math.max(...st.map((x) => x.d)) * st.length;
+    const st = stretches.reduce((a, b) => (weight(b) > weight(a) ? b : a));
+    const top = st.reduce((a, b) => (b.d > a.d ? b : a));
+    const from = st[0].km, to = st[st.length - 1].km;
+    const inside = (candidates || []).filter((c) => c.km >= from && c.km <= to);
+    const c = inside.length ? inside.reduce((x, y) => (Math.abs(y.km - top.km) < Math.abs(x.km - top.km) ? y : x)) : null;
+    return c ? { at: c.at, km: c.km } : { at: top.p, km: top.km };
+  }
+
+  // A stop near the middle of each long stretch where `line` leaves `ref`, longest first.
+  // Unlike nextPin's tipping-point stops, the app can't reach these by a slightly different
+  // detour, so they hold even when its timings differ from ours.
+  function middlePins(line, ref, candidates, max, minKm = 10) {
+    return stretchesOff(line, ref)
+      .map((st) => ({ from: st[0].km, to: st[st.length - 1].km, pts: st }))
+      .filter((st) => st.to - st.from >= minKm)
+      .sort((a, b) => (b.to - b.from) - (a.to - a.from))
+      .slice(0, max)
+      .map((st) => {
+        const mid = (st.from + st.to) / 2;
+        const inside = (candidates || []).filter((c) => c.km >= st.from && c.km <= st.to);
+        if (inside.length) return inside.reduce((x, y) => (Math.abs(y.km - mid) < Math.abs(x.km - mid) ? y : x));
+        const p = st.pts.reduce((x, y) => (Math.abs(y.km - mid) < Math.abs(x.km - mid) ? y : x));
+        return { at: p.p, km: p.km };
+      });
+  }
+
+  // Without a way to check, spread a few stops along the route.
+  function fallbackPins(line, n) {
+    const pts = sample(line);
+    const total = pts[pts.length - 1].km;
     const out = [];
     for (let k = 1; k <= n; k++) {
-      const target = (totalKm * k) / (n + 1);
-      out.push(pts.reduce((a, b) => (Math.abs(b.km - target) < Math.abs(a.km - target) ? b : a)));
+      const target = (total * k) / (n + 1);
+      out.push(pts.reduce((a, b) => (Math.abs(b.km - target) < Math.abs(a.km - target) ? b : a)).p);
     }
     return out;
   }
@@ -196,5 +194,5 @@ ${pts}
 `;
   }
 
-  return { APPS, pins, url, gpx, appleSupportsStops };
+  return { APPS, MAX_PINS: 5, nextPin, middlePins, fallbackPins, url, gpx, appleSupportsStops };
 })();

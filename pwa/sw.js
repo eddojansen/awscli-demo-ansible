@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep in sync with APP_VERSION in app.js.
-const CACHE = 'trailer-route-v6';
+const CACHE = 'trailer-route-v7';
 const SHELL = [
   './',
   'index.html',

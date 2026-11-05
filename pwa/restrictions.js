@@ -154,7 +154,7 @@ const Restrictions = (() => {
 
   // Points where a navigation app can't misread a stop: mid-way along two-way, non-motorway
   // roads (a stop on a dual carriageway can snap to the other direction).
-  const DUAL = /^(motorway|motorway_link|trunk|trunk_link)$/;
+  const DUAL = /^(motorway|motorway_link)$/;
   function pinCandidates(roads) {
     return roads
       .filter((r) => r.tags.oneway !== 'yes' && r.tags.oneway !== '-1' && !DUAL.test(r.tags.highway || '')
